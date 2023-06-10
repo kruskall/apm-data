@@ -20,7 +20,7 @@ package modelprocessor
 import (
 	"context"
 
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 // SetHostHostname is a transform.Processor that sets the final
@@ -29,19 +29,19 @@ import (
 type SetHostHostname struct{}
 
 // ProcessBatch sets or overrides the host.name and host.hostname fields for events.
-func (SetHostHostname) ProcessBatch(ctx context.Context, b *model.Batch) error {
+func (SetHostHostname) ProcessBatch(ctx context.Context, b *modelpb.Batch) error {
 	for i := range *b {
-		setHostHostname(&(*b)[i])
+		setHostHostname((*b)[i])
 	}
 	return nil
 }
 
-func setHostHostname(event *model.APMEvent) {
+func setHostHostname(event *modelpb.APMEvent) {
 	switch {
 	case event.Kubernetes.NodeName != "":
 		// host.kubernetes.node.name is set: set host.hostname to its value.
 		event.Host.Hostname = event.Kubernetes.NodeName
-	case event.Kubernetes.PodName != "" || event.Kubernetes.PodUID != "" || event.Kubernetes.Namespace != "":
+	case event.Kubernetes.PodName != "" || event.Kubernetes.PodUid != "" || event.Kubernetes.Namespace != "":
 		// kubernetes.* is set, but kubernetes.node.name is not: don't set host.hostname at all.
 		event.Host.Hostname = ""
 	default:

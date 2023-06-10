@@ -20,7 +20,7 @@ package modelprocessor
 import (
 	"context"
 
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 // SetServiceNodeName is a transform.Processor that sets the service
@@ -31,19 +31,19 @@ import (
 type SetServiceNodeName struct{}
 
 // ProcessBatch sets a default service.node.name for events without one already set.
-func (SetServiceNodeName) ProcessBatch(ctx context.Context, b *model.Batch) error {
+func (SetServiceNodeName) ProcessBatch(ctx context.Context, b *modelpb.Batch) error {
 	for i := range *b {
-		setServiceNodeName(&(*b)[i])
+		setServiceNodeName((*b)[i])
 	}
 	return nil
 }
 
-func setServiceNodeName(event *model.APMEvent) {
+func setServiceNodeName(event *modelpb.APMEvent) {
 	if event.Service.Node.Name != "" {
 		// Already set.
 		return
 	}
-	nodeName := event.Container.ID
+	nodeName := event.Container.Id
 	if nodeName == "" {
 		nodeName = event.Host.Name
 	}

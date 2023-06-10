@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 const (
@@ -40,26 +40,26 @@ const (
 	rumTracesDataset = "apm.rum"
 )
 
-// SetDataStream is a model.BatchProcessor that routes events to the appropriate
+// SetDataStream is a modelpb.BatchProcessor that routes events to the appropriate
 // data streams.
 type SetDataStream struct {
 	Namespace string
 }
 
 // ProcessBatch sets data stream fields for each event in b.
-func (s *SetDataStream) ProcessBatch(ctx context.Context, b *model.Batch) error {
+func (s *SetDataStream) ProcessBatch(ctx context.Context, b *modelpb.Batch) error {
 	for i := range *b {
 		(*b)[i].DataStream.Namespace = s.Namespace
 		if (*b)[i].DataStream.Type == "" || (*b)[i].DataStream.Dataset == "" {
-			s.setDataStream(&(*b)[i])
+			s.setDataStream((*b)[i])
 		}
 	}
 	return nil
 }
 
-func (s *SetDataStream) setDataStream(event *model.APMEvent) {
-	switch event.Processor {
-	case model.SpanProcessor, model.TransactionProcessor:
+func (s *SetDataStream) setDataStream(event *modelpb.APMEvent) {
+	switch {
+	case event.Processor.IsSpan(), event.Processor.IsTransaction():
 		event.DataStream.Type = tracesType
 		event.DataStream.Dataset = tracesDataset
 		// In order to maintain different ILM policies, RUM traces are sent to
@@ -67,13 +67,13 @@ func (s *SetDataStream) setDataStream(event *model.APMEvent) {
 		if isRUMAgentName(event.Agent.Name) {
 			event.DataStream.Dataset = rumTracesDataset
 		}
-	case model.ErrorProcessor:
+	case event.Processor.IsError():
 		event.DataStream.Type = logsType
 		event.DataStream.Dataset = errorsDataset
-	case model.LogProcessor:
+	case event.Processor.IsLog():
 		event.DataStream.Type = logsType
 		event.DataStream.Dataset = getAppLogsDataset(event)
-	case model.MetricsetProcessor:
+	case event.Processor.IsMetricset():
 		event.DataStream.Type = metricsType
 		event.DataStream.Dataset = metricsetDataset(event)
 	}
@@ -88,7 +88,7 @@ func isRUMAgentName(agentName string) bool {
 	return false
 }
 
-func getAppLogsDataset(event *model.APMEvent) string {
+func getAppLogsDataset(event *modelpb.APMEvent) string {
 	serviceName := event.Service.Name
 	if serviceName == "" {
 		serviceName = logDefaultServiceName
@@ -101,7 +101,7 @@ func getAppLogsDataset(event *model.APMEvent) string {
 	return dataset.String()
 }
 
-func metricsetDataset(event *model.APMEvent) string {
+func metricsetDataset(event *modelpb.APMEvent) string {
 	if event.Transaction != nil || event.Span != nil || event.Service.Name == "" ||
 		(event.Metricset != nil && event.Metricset.Name == "service_summary") {
 		// Metrics that include well-defined transaction/span fields
@@ -134,10 +134,10 @@ func metricsetDataset(event *model.APMEvent) string {
 			// The internal metrics data stream does not use dynamic
 			// mapping, so we must drop type and unit if specified.
 			for i, sample := range event.Metricset.Samples {
-				if sample.Type == "" && sample.Unit == "" {
+				if sample.Type == modelpb.MetricType_METRIC_TYPE_UNSPECIFIED && sample.Unit == "" {
 					continue
 				}
-				sample.Type = ""
+				sample.Type = modelpb.MetricType_METRIC_TYPE_UNSPECIFIED
 				sample.Unit = ""
 				event.Metricset.Samples[i] = sample
 			}

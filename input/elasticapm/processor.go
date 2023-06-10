@@ -32,7 +32,7 @@ import (
 	"github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder"
 	"github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder/rumv3"
 	v2 "github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder/v2"
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 var (
@@ -94,7 +94,7 @@ func NewProcessor(cfg Config) *Processor {
 	}
 }
 
-func (p *Processor) readMetadata(reader *streamReader, out *model.APMEvent) error {
+func (p *Processor) readMetadata(reader *streamReader, out *modelpb.APMEvent) error {
 	body, err := reader.ReadAhead()
 	if err != nil {
 		if err == io.EOF {
@@ -153,9 +153,9 @@ func (p *Processor) identifyEventType(body []byte) []byte {
 // the error err.
 func (p *Processor) readBatch(
 	ctx context.Context,
-	baseEvent model.APMEvent,
+	baseEvent *modelpb.APMEvent,
 	batchSize int,
-	batch *model.Batch,
+	batch *modelpb.Batch,
 	reader *streamReader,
 	result *Result,
 ) (int, error) {
@@ -223,10 +223,10 @@ func (p *Processor) readBatch(
 func (p *Processor) HandleStream(
 	ctx context.Context,
 	async bool,
-	baseEvent model.APMEvent,
+	baseEvent *modelpb.APMEvent,
 	reader io.Reader,
 	batchSize int,
-	processor model.BatchProcessor,
+	processor modelpb.BatchProcessor,
 	result *Result,
 ) error {
 	// Limit the number of concurrent batch decodes.
@@ -255,7 +255,7 @@ func (p *Processor) HandleStream(
 	}()
 
 	// The first item is the metadata object.
-	if err := p.readMetadata(sr, &baseEvent); err != nil {
+	if err := p.readMetadata(sr, baseEvent); err != nil {
 		// no point in continuing if we couldn't read the metadata
 		if _, ok := err.(*InvalidInputError); ok {
 			return err
@@ -291,10 +291,10 @@ func (p *Processor) HandleStream(
 func (p *Processor) handleStream(
 	ctx context.Context,
 	async bool,
-	baseEvent model.APMEvent,
+	baseEvent *modelpb.APMEvent,
 	batchSize int,
 	sr *streamReader,
-	processor model.BatchProcessor,
+	processor modelpb.BatchProcessor,
 	result *Result,
 	first bool,
 ) (readErr error) {
@@ -318,8 +318,8 @@ func (p *Processor) handleStream(
 			}
 		}()
 	}
-	var batch model.Batch
-	if b, ok := p.batchPool.Get().(*model.Batch); ok {
+	var batch modelpb.Batch
+	if b, ok := p.batchPool.Get().(*modelpb.Batch); ok {
 		batch = (*b)[:0]
 	}
 	n, readErr = p.readBatch(ctx, baseEvent, batchSize, &batch, sr, result)
@@ -347,7 +347,7 @@ func (p *Processor) handleStream(
 }
 
 // processBatch processes the batch and returns it to the pool after it's been processed.
-func (p *Processor) processBatch(ctx context.Context, processor model.BatchProcessor, batch *model.Batch) error {
+func (p *Processor) processBatch(ctx context.Context, processor modelpb.BatchProcessor, batch *modelpb.Batch) error {
 	defer p.batchPool.Put(batch)
 	return processor.ProcessBatch(ctx, batch)
 }
@@ -419,13 +419,13 @@ func (sr *streamReader) wrapError(err error) error {
 
 // copyEvent returns a shallow copy of the APMEvent with a deep copy of the
 // labels and numeric labels.
-func copyEvent(e model.APMEvent) model.APMEvent {
+func copyEvent(e *modelpb.APMEvent) *modelpb.APMEvent {
 	var out = e
 	if out.Labels != nil {
-		out.Labels = out.Labels.Clone()
+		out.Labels = modelpb.Labels(out.Labels).Clone()
 	}
 	if out.NumericLabels != nil {
-		out.NumericLabels = out.NumericLabels.Clone()
+		out.NumericLabels = modelpb.NumericLabels(out.NumericLabels).Clone()
 	}
 	return out
 }

@@ -21,14 +21,15 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // GlobalLabelsFrom populates the Labels and NumericLabels from global labels
 // in the metadata object.
-func GlobalLabelsFrom(from map[string]any, to *model.APMEvent) {
-	to.NumericLabels = make(model.NumericLabels)
-	to.Labels = make(model.Labels)
+func GlobalLabelsFrom(from map[string]any, to *modelpb.APMEvent) {
+	to.NumericLabels = make(modelpb.NumericLabels)
+	to.Labels = make(modelpb.Labels)
 	MergeLabels(from, to)
 	for k, v := range to.Labels {
 		v.Global = true
@@ -44,24 +45,24 @@ func GlobalLabelsFrom(from map[string]any, to *model.APMEvent) {
 // combining event-specific labels onto (metadata) global labels.
 //
 // If eventLabels is non-nil, it is first cloned.
-func MergeLabels(eventLabels map[string]any, to *model.APMEvent) {
+func MergeLabels(eventLabels map[string]any, to *modelpb.APMEvent) {
 	if to.NumericLabels == nil {
-		to.NumericLabels = make(model.NumericLabels)
+		to.NumericLabels = make(modelpb.NumericLabels)
 	}
 	if to.Labels == nil {
-		to.Labels = make(model.Labels)
+		to.Labels = make(modelpb.Labels)
 	}
 	for k, v := range eventLabels {
 		switch v := v.(type) {
 		case string:
-			to.Labels.Set(k, v)
+			modelpb.Labels(to.Labels).Set(k, v)
 		case bool:
-			to.Labels.Set(k, strconv.FormatBool(v))
+			modelpb.Labels(to.Labels).Set(k, strconv.FormatBool(v))
 		case float64:
-			to.NumericLabels.Set(k, v)
+			modelpb.NumericLabels(to.NumericLabels).Set(k, v)
 		case json.Number:
 			if floatVal, err := v.Float64(); err == nil {
-				to.NumericLabels.Set(k, floatVal)
+				modelpb.NumericLabels(to.NumericLabels).Set(k, floatVal)
 			}
 		}
 	}
@@ -75,14 +76,9 @@ func MergeLabels(eventLabels map[string]any, to *model.APMEvent) {
 
 // NormalizeLabelValues transforms the values in labels, replacing any
 // instance of json.Number with float64, and returning labels.
-func NormalizeLabelValues(labels map[string]any) map[string]any {
-	for k, v := range labels {
-		switch v := v.(type) {
-		case json.Number:
-			if floatVal, err := v.Float64(); err == nil {
-				labels[k] = floatVal
-			}
-		}
+func NormalizeLabelValues(labels map[string]any) *structpb.Struct {
+	if m, err := structpb.NewStruct(labels); err == nil {
+		return m
 	}
-	return labels
+	return nil
 }

@@ -17,16 +17,12 @@
 
 package modeldecoderutil
 
+import "google.golang.org/protobuf/types/known/structpb"
+
 // CloneMap returns a deep clone of m.
-func CloneMap(in map[string]any) map[string]any {
-	out := make(map[string]any)
-	for k, v := range in {
-		switch v := v.(type) {
-		case map[string]any:
-			out[k] = CloneMap(v)
-		default:
-			out[k] = v
-		}
+func CloneMap(in map[string]any) *structpb.Struct {
+	if out, err := structpb.NewStruct(in); err == nil {
+		return out
 	}
-	return out
+	return nil
 }

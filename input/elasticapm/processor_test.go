@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,8 +29,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 func TestHandleStreamReaderError(t *testing.T) {
@@ -57,7 +57,7 @@ func TestHandleStreamReaderError(t *testing.T) {
 
 	var actualResult Result
 	err := sp.HandleStream(
-		context.Background(), false, model.APMEvent{},
+		context.Background(), false, &modelpb.APMEvent{},
 		reader, 10, nopBatchProcessor{}, &actualResult,
 	)
 	assert.Equal(t, readErr, err)
@@ -86,13 +86,13 @@ func TestHandleStreamBatchProcessorError(t *testing.T) {
 			MaxEventSize: 100 * 1024,
 			Semaphore:    make(chan struct{}, 1),
 		})
-		processor := model.ProcessBatchFunc(func(context.Context, *model.Batch) error {
+		processor := modelpb.ProcessBatchFunc(func(context.Context, *modelpb.Batch) error {
 			return test.err
 		})
 
 		var actualResult Result
 		err := sp.HandleStream(
-			context.Background(), false, model.APMEvent{},
+			context.Background(), false, &modelpb.APMEvent{},
 			strings.NewReader(payload), 10, processor, &actualResult,
 		)
 		assert.Equal(t, test.err, err)
@@ -188,7 +188,7 @@ func TestHandleStreamErrors(t *testing.T) {
 				Semaphore:    make(chan struct{}, 1),
 			})
 			err := p.HandleStream(
-				context.Background(), false, model.APMEvent{},
+				context.Background(), false, &modelpb.APMEvent{},
 				strings.NewReader(test.payload), 10,
 				nopBatchProcessor{}, &actualResult,
 			)
@@ -202,9 +202,9 @@ func TestHandleStreamErrors(t *testing.T) {
 }
 
 func TestHandleStream(t *testing.T) {
-	var events []model.APMEvent
-	batchProcessor := model.ProcessBatchFunc(func(ctx context.Context, batch *model.Batch) error {
-		events = append(events, (*batch)...)
+	var events []*modelpb.APMEvent
+	batchProcessor := modelpb.ProcessBatchFunc(func(ctx context.Context, batch *modelpb.Batch) error {
+		events = append(events, *batch...)
 		return nil
 	})
 
@@ -223,29 +223,29 @@ func TestHandleStream(t *testing.T) {
 		Semaphore:    make(chan struct{}, 1),
 	})
 	err := p.HandleStream(
-		context.Background(), false, model.APMEvent{},
+		context.Background(), false, &modelpb.APMEvent{},
 		strings.NewReader(payload), 10, batchProcessor,
 		&Result{},
 	)
 	require.NoError(t, err)
 
-	processors := make([]model.Processor, len(events))
+	processors := make([]*modelpb.Processor, len(events))
 	for i, event := range events {
 		processors[i] = event.Processor
 	}
-	assert.Equal(t, []model.Processor{
-		model.ErrorProcessor,
-		model.MetricsetProcessor,
-		model.SpanProcessor,
-		model.TransactionProcessor,
-		model.LogProcessor,
+	assert.Equal(t, []*modelpb.Processor{
+		modelpb.ErrorProcessor(),
+		modelpb.MetricsetProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.TransactionProcessor(),
+		modelpb.LogProcessor(),
 	}, processors)
 }
 
 func TestHandleStreamRUMv3(t *testing.T) {
-	var events []model.APMEvent
-	batchProcessor := model.ProcessBatchFunc(func(ctx context.Context, batch *model.Batch) error {
-		events = append(events, (*batch)...)
+	var events []*modelpb.APMEvent
+	batchProcessor := modelpb.ProcessBatchFunc(func(ctx context.Context, batch *modelpb.Batch) error {
+		events = append(events, *batch...)
 		return nil
 	})
 
@@ -261,45 +261,45 @@ func TestHandleStreamRUMv3(t *testing.T) {
 		Semaphore:    make(chan struct{}, 1),
 	})
 	err := p.HandleStream(
-		context.Background(), false, model.APMEvent{},
+		context.Background(), false, &modelpb.APMEvent{},
 		strings.NewReader(payload), 10, batchProcessor,
 		&Result{},
 	)
 	require.NoError(t, err)
 
-	processors := make([]model.Processor, len(events))
+	processors := make([]*modelpb.Processor, len(events))
 	for i, event := range events {
 		processors[i] = event.Processor
 	}
-	assert.Equal(t, []model.Processor{
-		model.ErrorProcessor,
-		model.TransactionProcessor,
-		model.MetricsetProcessor,
-		model.MetricsetProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
-		model.SpanProcessor,
+	assert.Equal(t, []*modelpb.Processor{
+		modelpb.ErrorProcessor(),
+		modelpb.TransactionProcessor(),
+		modelpb.MetricsetProcessor(),
+		modelpb.MetricsetProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
+		modelpb.SpanProcessor(),
 	}, processors)
 }
 
 func TestHandleStreamBaseEvent(t *testing.T) {
 	requestTimestamp := time.Date(2018, 8, 1, 10, 0, 0, 0, time.UTC)
 
-	baseEvent := model.APMEvent{
-		Timestamp: requestTimestamp,
-		UserAgent: model.UserAgent{Original: "rum-2.0"},
-		Source:    model.Source{IP: netip.MustParseAddr("192.0.0.1")},
-		Client:    model.Client{IP: netip.MustParseAddr("192.0.0.2")}, // X-Forwarded-For
+	baseEvent := modelpb.APMEvent{
+		Timestamp: timestamppb.New(requestTimestamp),
+		UserAgent: &modelpb.UserAgent{Original: "rum-2.0"},
+		Source:    &modelpb.Source{Ip: "192.0.0.1"},
+		Client:    &modelpb.Client{Ip: "192.0.0.2"}, // X-Forwarded-For
 	}
 
-	var events []model.APMEvent
-	batchProcessor := model.ProcessBatchFunc(func(ctx context.Context, batch *model.Batch) error {
-		events = append(events, (*batch)...)
+	var events []*modelpb.APMEvent
+	batchProcessor := modelpb.ProcessBatchFunc(func(ctx context.Context, batch *modelpb.Batch) error {
+		events = append(events, *batch...)
 		return nil
 	})
 
@@ -309,7 +309,7 @@ func TestHandleStreamBaseEvent(t *testing.T) {
 		Semaphore:    make(chan struct{}, 1),
 	})
 	err := p.HandleStream(
-		context.Background(), false, baseEvent,
+		context.Background(), false, &baseEvent,
 		strings.NewReader(payload), 10, batchProcessor,
 		&Result{},
 	)
@@ -327,12 +327,12 @@ func TestLabelLeak(t *testing.T) {
 {"transaction": {"id": "88dee29a6571b948", "trace_id": "ba7f5d18ac4c7f39d1ff070c79b2bea5", "name": "GET /withlabels", "type": "request", "duration": 1.6199999999999999, "result": "HTTP 2xx", "timestamp": 1652185276804681, "outcome": "success", "sampled": true, "span_count": {"started": 0, "dropped": 0}, "sample_rate": 1.0, "context": {"request": {"env": {"REMOTE_ADDR": "127.0.0.1", "SERVER_NAME": "127.0.0.1", "SERVER_PORT": "5000"}, "method": "GET", "socket": {"remote_address": "127.0.0.1"}, "cookies": {}, "headers": {"host": "localhost:5000", "user-agent": "curl/7.81.0", "accept": "*/*", "app-os": "Android", "content-type": "application/json; charset=utf-8", "content-length": "29"}, "url": {"full": "http://localhost:5000/withlabels?second_with_labels", "protocol": "http:", "hostname": "localhost", "pathname": "/withlabels", "port": "5000", "search": "?second_with_labels"}}, "response": {"status_code": 200, "headers": {"Content-Type": "application/json", "Content-Length": "14"}}, "tags": {"appOs": "Android", "email_set": "hello@hello.com", "time_set": 1652185276}}}}
 {"transaction": {"id": "ba5c6d6c1ab44bd1", "trace_id": "88c0a00431531a80c5ca9a41fe115f41", "name": "GET /nolabels", "type": "request", "duration": 0.652, "result": "HTTP 2xx", "timestamp": 1652185278813952, "outcome": "success", "sampled": true, "span_count": {"started": 0, "dropped": 0}, "sample_rate": 1.0, "context": {"request": {"env": {"REMOTE_ADDR": "127.0.0.1", "SERVER_NAME": "127.0.0.1", "SERVER_PORT": "5000"}, "method": "GET", "socket": {"remote_address": "127.0.0.1"}, "cookies": {}, "headers": {"host": "localhost:5000", "user-agent": "curl/7.81.0", "accept": "*/*"}, "url": {"full": "http://localhost:5000/nolabels?third_no_label", "protocol": "http:", "hostname": "localhost", "pathname": "/nolabels", "port": "5000", "search": "?third_no_label"}}, "response": {"status_code": 200, "headers": {"Content-Type": "text/html; charset=utf-8", "Content-Length": "14"}}, "tags": {}}}}`
 
-	baseEvent := model.APMEvent{
-		Host: model.Host{IP: []netip.Addr{netip.MustParseAddr("192.0.0.1")}},
+	baseEvent := modelpb.APMEvent{
+		Host: &modelpb.Host{Ip: []string{"192.0.0.1"}},
 	}
 
-	var processed *model.Batch
-	batchProcessor := model.ProcessBatchFunc(func(_ context.Context, b *model.Batch) error {
+	var processed *modelpb.Batch
+	batchProcessor := modelpb.ProcessBatchFunc(func(_ context.Context, b *modelpb.Batch) error {
 		processed = b
 		return nil
 	})
@@ -342,32 +342,32 @@ func TestLabelLeak(t *testing.T) {
 		Semaphore:    make(chan struct{}, 1),
 	})
 	var actualResult Result
-	err := p.HandleStream(context.Background(), false, baseEvent, strings.NewReader(payload), 10, batchProcessor, &actualResult)
+	err := p.HandleStream(context.Background(), false, &baseEvent, strings.NewReader(payload), 10, batchProcessor, &actualResult)
 	require.NoError(t, err)
 
 	txs := *processed
 	assert.Len(t, txs, 2)
 	// Assert first tx
-	assert.Equal(t, model.NumericLabels{
+	assert.Equal(t, modelpb.NumericLabels{
 		"time_set": {Value: 1652185276},
 		"numeric":  {Global: true, Value: 1},
 	}, txs[0].NumericLabels)
-	assert.Equal(t, model.Labels{
+	assert.Equal(t, modelpb.Labels{
 		"appOs":     {Value: "Android"},
 		"email_set": {Value: "hello@hello.com"},
 		"ci_commit": {Global: true, Value: "unknown"},
 	}, txs[0].Labels)
 
 	// Assert second tx
-	assert.Equal(t, model.NumericLabels{"numeric": {Global: true, Value: 1}}, txs[1].NumericLabels)
-	assert.Equal(t, model.Labels{"ci_commit": {Global: true, Value: "unknown"}}, txs[1].Labels)
+	assert.Equal(t, modelpb.NumericLabels{"numeric": {Global: true, Value: 1}}, txs[1].NumericLabels)
+	assert.Equal(t, modelpb.Labels{"ci_commit": {Global: true, Value: "unknown"}}, txs[1].Labels)
 }
 
 func TestConcurrentAsync(t *testing.T) {
 	smallBatch := validMetadata + "\n" + validTransaction + "\n"
 	bigBatch := validMetadata + "\n" + strings.Repeat(validTransaction+"\n", 2000)
 
-	base := model.APMEvent{Host: model.Host{IP: []netip.Addr{netip.MustParseAddr("192.0.0.1")}}}
+	base := modelpb.APMEvent{Host: &modelpb.Host{Ip: []string{"192.0.0.1"}}}
 	type testCase struct {
 		payload       string
 		sem, requests int
@@ -391,7 +391,7 @@ func TestConcurrentAsync(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				var result Result
-				err := p.HandleStream(ctx, true, base, strings.NewReader(tc.payload), 10, bp, &result)
+				err := p.HandleStream(ctx, true, &base, strings.NewReader(tc.payload), 10, bp, &result)
 				if err != nil {
 					result.addError(err)
 				}
@@ -408,7 +408,7 @@ func TestConcurrentAsync(t *testing.T) {
 				mu.Unlock()
 			}()
 		}
-		batchProcessor := &accountProcessor{batch: make(chan *model.Batch, tc.requests)}
+		batchProcessor := &accountProcessor{batch: make(chan *modelpb.Batch, tc.requests)}
 		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 		defer cancel()
 		for i := 0; i < tc.requests; i++ {
@@ -494,16 +494,16 @@ func TestConcurrentAsync(t *testing.T) {
 
 type nopBatchProcessor struct{}
 
-func (nopBatchProcessor) ProcessBatch(context.Context, *model.Batch) error {
+func (nopBatchProcessor) ProcessBatch(context.Context, *modelpb.Batch) error {
 	return nil
 }
 
 type accountProcessor struct {
-	batch     chan *model.Batch
+	batch     chan *modelpb.Batch
 	processed uint64
 }
 
-func (p *accountProcessor) ProcessBatch(ctx context.Context, b *model.Batch) error {
+func (p *accountProcessor) ProcessBatch(ctx context.Context, b *modelpb.Batch) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

@@ -18,13 +18,14 @@
 package modeldecoderutil
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // HTTPHeadersToMap converts h to a map[string]any, suitable for
 // use in model.HTTP.{Request,Response}.Headers.
-func HTTPHeadersToMap(h http.Header) map[string]any {
+func HTTPHeadersToMap(h http.Header) *structpb.Struct {
 	if len(h) == 0 {
 		return nil
 	}
@@ -36,7 +37,10 @@ func HTTPHeadersToMap(h http.Header) map[string]any {
 		}
 		m[k] = arr
 	}
-	return m
+	if m, err := structpb.NewStruct(m); err == nil {
+		return m
+	}
+	return nil
 }
 
 // NormalizeHTTPRequestBody recurses through v, replacing any instance of
@@ -45,32 +49,9 @@ func HTTPHeadersToMap(h http.Header) map[string]any {
 // TODO(axw) define a more restrictive schema for context.request.body
 // so this is unnecessary. Agents are unlikely to send numbers, but
 // seeing as the schema does not prevent it we need this.
-func NormalizeHTTPRequestBody(v interface{}) interface{} {
-	switch v := v.(type) {
-	case []interface{}:
-		for i, elem := range v {
-			v[i] = NormalizeHTTPRequestBody(elem)
-		}
-		if len(v) == 0 {
-			return nil
-		}
-	case map[string]interface{}:
-		m := v
-		for k, v := range v {
-			v := NormalizeHTTPRequestBody(v)
-			if v != nil {
-				m[k] = v
-			} else {
-				delete(m, k)
-			}
-		}
-		if len(m) == 0 {
-			return nil
-		}
-	case json.Number:
-		if floatVal, err := v.Float64(); err == nil {
-			return floatVal
-		}
+func NormalizeHTTPRequestBody(v interface{}) *structpb.Value {
+	if v, err := structpb.NewValue(v); err == nil {
+		return v
 	}
-	return v
+	return nil
 }

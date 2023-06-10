@@ -24,10 +24,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/elastic/apm-data/model/modelpb"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	semconv "go.opentelemetry.io/collector/semconv/v1.5.0"
-
-	"github.com/elastic/apm-data/model"
 )
 
 const (
@@ -38,7 +37,7 @@ var (
 	serviceNameInvalidRegexp = regexp.MustCompile("[^a-zA-Z0-9 _-]")
 )
 
-func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
+func translateResourceMetadata(resource pcommon.Resource, out *modelpb.APMEvent) {
 	var exporterVersion string
 	resource.Attributes().Range(func(k string, v pcommon.Value) bool {
 		switch k {
@@ -66,7 +65,7 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 		case semconv.AttributeCloudProvider:
 			out.Cloud.Provider = truncate(v.Str())
 		case semconv.AttributeCloudAccountID:
-			out.Cloud.AccountID = truncate(v.Str())
+			out.Cloud.AccountId = truncate(v.Str())
 		case semconv.AttributeCloudRegion:
 			out.Cloud.Region = truncate(v.Str())
 		case semconv.AttributeCloudAvailabilityZone:
@@ -78,7 +77,7 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 		case semconv.AttributeContainerName:
 			out.Container.Name = truncate(v.Str())
 		case semconv.AttributeContainerID:
-			out.Container.ID = truncate(v.Str())
+			out.Container.Id = truncate(v.Str())
 		case semconv.AttributeContainerImageName:
 			out.Container.ImageName = truncate(v.Str())
 		case semconv.AttributeContainerImageTag:
@@ -94,13 +93,13 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 		case semconv.AttributeK8SPodName:
 			out.Kubernetes.PodName = truncate(v.Str())
 		case semconv.AttributeK8SPodUID:
-			out.Kubernetes.PodUID = truncate(v.Str())
+			out.Kubernetes.PodUid = truncate(v.Str())
 
 		// host.*
 		case semconv.AttributeHostName:
 			out.Host.Hostname = truncate(v.Str())
 		case semconv.AttributeHostID:
-			out.Host.ID = truncate(v.Str())
+			out.Host.Id = truncate(v.Str())
 		case semconv.AttributeHostType:
 			out.Host.Type = truncate(v.Str())
 		case "host.arch":
@@ -108,7 +107,7 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 
 		// process.*
 		case semconv.AttributeProcessPID:
-			out.Process.Pid = int(v.Int())
+			out.Process.Pid = uint32(v.Int())
 		case semconv.AttributeProcessCommandLine:
 			out.Process.CommandLine = truncate(v.Str())
 		case semconv.AttributeProcessExecutablePath:
@@ -120,17 +119,17 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 
 		// os.*
 		case semconv.AttributeOSType:
-			out.Host.OS.Platform = strings.ToLower(truncate(v.Str()))
+			out.Host.Os.Platform = strings.ToLower(truncate(v.Str()))
 		case semconv.AttributeOSDescription:
-			out.Host.OS.Full = truncate(v.Str())
+			out.Host.Os.Full = truncate(v.Str())
 		case semconv.AttributeOSName:
-			out.Host.OS.Name = truncate(v.Str())
+			out.Host.Os.Name = truncate(v.Str())
 		case semconv.AttributeOSVersion:
-			out.Host.OS.Version = truncate(v.Str())
+			out.Host.Os.Version = truncate(v.Str())
 
 		// device.*
 		case semconv.AttributeDeviceID:
-			out.Device.ID = truncate(v.Str())
+			out.Device.Id = truncate(v.Str())
 		case semconv.AttributeDeviceModelIdentifier:
 			out.Device.Model.Identifier = truncate(v.Str())
 		case semconv.AttributeDeviceModelName:
@@ -149,10 +148,10 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 
 		default:
 			if out.Labels == nil {
-				out.Labels = make(model.Labels)
+				out.Labels = make(modelpb.Labels)
 			}
 			if out.NumericLabels == nil {
-				out.NumericLabels = make(model.NumericLabels)
+				out.NumericLabels = make(modelpb.NumericLabels)
 			}
 			setLabel(replaceDots(k), out, ifaceAttributeValue(v))
 		}
@@ -163,20 +162,20 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 	//
 	// "One of these following values should be used (lowercase): linux, macos, unix, windows.
 	// If the OS you’re dealing with is not in the list, the field should not be populated."
-	switch out.Host.OS.Platform {
+	switch out.GetHost().GetOs().GetPlatform() {
 	case "windows", "linux":
-		out.Host.OS.Type = out.Host.OS.Platform
+		out.Host.Os.Type = out.Host.Os.Platform
 	case "darwin":
-		out.Host.OS.Type = "macos"
+		out.Host.Os.Type = "macos"
 	case "aix", "hpux", "solaris":
-		out.Host.OS.Type = "unix"
+		out.Host.Os.Type = "unix"
 	}
 
-	switch out.Host.OS.Name {
+	switch out.GetHost().GetOs().GetName() {
 	case "Android":
-		out.Host.OS.Type = "android"
+		out.Host.Os.Type = "android"
 	case "iOS":
-		out.Host.OS.Type = "ios"
+		out.Host.Os.Type = "ios"
 	}
 
 	if strings.HasPrefix(exporterVersion, "Jaeger") {
@@ -193,32 +192,47 @@ func translateResourceMetadata(resource pcommon.Resource, out *model.APMEvent) {
 
 		// Translate known Jaeger labels.
 		if clientUUID, ok := out.Labels["client-uuid"]; ok {
-			out.Agent.EphemeralID = clientUUID.Value
+			out.Agent.EphemeralId = clientUUID.Value
 			delete(out.Labels, "client-uuid")
 		}
 		if systemIP, ok := out.Labels["ip"]; ok {
 			if ip, err := netip.ParseAddr(systemIP.Value); err == nil {
-				out.Host.IP = []netip.Addr{ip}
+				out.Host.Ip = []string{ip.String()}
 			}
 			delete(out.Labels, "ip")
 		}
 	}
 
-	if out.Service.Name == "" {
+	if out.GetService().GetName() == "" {
 		// service.name is a required field.
+		if out.Service == nil {
+			out.Service = &modelpb.Service{}
+		}
 		out.Service.Name = "unknown"
 	}
-	if out.Agent.Name == "" {
+	if out.GetAgent().GetName() == "" {
 		// agent.name is a required field.
+		if out.Agent == nil {
+			out.Agent = &modelpb.Agent{}
+		}
 		out.Agent.Name = "otlp"
 	}
-	if out.Agent.Version == "" {
+	if out.GetAgent().GetVersion() == "" {
 		// agent.version is a required field.
+		if out.Agent == nil {
+			out.Agent = &modelpb.Agent{}
+		}
 		out.Agent.Version = "unknown"
 	}
-	if out.Service.Language.Name != "" {
+	if out.GetService().GetLanguage().GetName() != "" {
 		out.Agent.Name = fmt.Sprintf("%s/%s", out.Agent.Name, out.Service.Language.Name)
 	} else {
+		if out.Service == nil {
+			out.Service = &modelpb.Service{}
+		}
+		if out.Service.Language == nil {
+			out.Service.Language = &modelpb.Language{}
+		}
 		out.Service.Language.Name = "unknown"
 	}
 
@@ -262,21 +276,21 @@ func ifaceAttributeValueSlice(slice pcommon.Slice) []interface{} {
 }
 
 // initEventLabels initializes an event-specific labels from an event.
-func initEventLabels(e *model.APMEvent) {
-	e.Labels = e.Labels.Clone()
-	e.NumericLabels = e.NumericLabels.Clone()
+func initEventLabels(e *modelpb.APMEvent) {
+	e.Labels = modelpb.Labels(e.Labels).Clone()
+	e.NumericLabels = modelpb.NumericLabels(e.NumericLabels).Clone()
 }
 
-func setLabel(key string, event *model.APMEvent, v interface{}) {
+func setLabel(key string, event *modelpb.APMEvent, v interface{}) {
 	switch v := v.(type) {
 	case string:
-		event.Labels.Set(key, v)
+		modelpb.Labels(event.Labels).Set(key, v)
 	case bool:
-		event.Labels.Set(key, strconv.FormatBool(v))
+		modelpb.Labels(event.Labels).Set(key, strconv.FormatBool(v))
 	case float64:
-		event.NumericLabels.Set(key, v)
+		modelpb.NumericLabels(event.NumericLabels).Set(key, v)
 	case int64:
-		event.NumericLabels.Set(key, float64(v))
+		modelpb.NumericLabels(event.NumericLabels).Set(key, float64(v))
 	case []interface{}:
 		if len(v) == 0 {
 			return
@@ -287,13 +301,13 @@ func setLabel(key string, event *model.APMEvent, v interface{}) {
 			for i := range v {
 				value[i] = v[i].(string)
 			}
-			event.Labels.SetSlice(key, value)
+			modelpb.Labels(event.Labels).SetSlice(key, value)
 		case float64:
 			value := make([]float64, len(v))
 			for i := range v {
 				value[i] = v[i].(float64)
 			}
-			event.NumericLabels.SetSlice(key, value)
+			modelpb.NumericLabels(event.NumericLabels).SetSlice(key, value)
 		}
 	}
 }
