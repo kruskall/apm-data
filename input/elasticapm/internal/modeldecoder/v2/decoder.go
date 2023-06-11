@@ -36,6 +36,7 @@ import (
 	"github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder/nullable"
 	"github.com/elastic/apm-data/input/otlp"
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -139,14 +140,14 @@ func releaseLogRoot(root *logRoot) {
 //
 // DecodeMetadata should be used when the the stream in the decoder does not contain the
 // `metadata` key, but only the metadata data.
-func DecodeMetadata(d decoder.Decoder, out *model.APMEvent) error {
+func DecodeMetadata(d decoder.Decoder, out *modelpb.APMEvent) error {
 	return decodeMetadata(decodeIntoMetadata, d, out)
 }
 
 // DecodeNestedMetadata decodes metadata from d, updating out.
 //
 // DecodeNestedMetadata should be used when the stream in the decoder contains the `metadata` key
-func DecodeNestedMetadata(d decoder.Decoder, out *model.APMEvent) error {
+func DecodeNestedMetadata(d decoder.Decoder, out *modelpb.APMEvent) error {
 	return decodeMetadata(decodeIntoMetadataRoot, d, out)
 }
 
@@ -250,25 +251,24 @@ func DecodeNestedLog(d decoder.Decoder, input *modeldecoder.Input, batch *model.
 	return err
 }
 
-func decodeMetadata(decFn func(d decoder.Decoder, m *metadataRoot) error, d decoder.Decoder, out *model.APMEvent) error {
-	m := fetchMetadataRoot()
-	defer releaseMetadataRoot(m)
+func decodeMetadata(decFn func(d decoder.Decoder, m *map[string]any) error, d decoder.Decoder, out *modelpb.APMEvent) error {
+	var m map[string]any
 	var err error
-	if err = decFn(d, m); err != nil && err != io.EOF {
+	if err = decFn(d, &m); err != nil && err != io.EOF {
 		return modeldecoder.NewDecoderErrFromJSONIter(err)
 	}
-	if err := m.validate(); err != nil {
+	/*if err := m.validate(); err != nil {
 		return modeldecoder.NewValidationErr(err)
-	}
-	mapToMetadataModel(&m.Metadata, out)
+	}*/
+	mapToMetadataModel(m, out)
 	return err
 }
 
-func decodeIntoMetadata(d decoder.Decoder, m *metadataRoot) error {
-	return d.Decode(&m.Metadata)
+func decodeIntoMetadata(d decoder.Decoder, m *map[string]any) error {
+	return d.Decode(m)
 }
 
-func decodeIntoMetadataRoot(d decoder.Decoder, m *metadataRoot) error {
+func decodeIntoMetadataRoot(d decoder.Decoder, m *map[string]any) error {
 	return d.Decode(m)
 }
 
@@ -506,7 +506,7 @@ func mapToExceptionModel(from errorException, out *model.Exception) {
 	}
 }
 
-func mapToMetadataModel(from *metadata, out *model.APMEvent) {
+func mapToMetadataModelOld(from *metadata, out *model.APMEvent) {
 	// Cloud
 	if from.Cloud.Account.ID.IsSet() {
 		out.Cloud.AccountID = from.Cloud.Account.ID.Val
@@ -656,6 +656,197 @@ func mapToMetadataModel(from *metadata, out *model.APMEvent) {
 	// Network
 	if from.Network.Connection.Type.IsSet() {
 		out.Network.Connection.Type = from.Network.Connection.Type.Val
+	}
+}
+
+func mapToMetadataModel(m map[string]any, out *modelpb.APMEvent) {
+	// Cloud
+	if cloudMap, ok := getMap(m, "cloud"); ok {
+		out.Cloud = &modelpb.Cloud{}
+		if accountMap, ok := getMap(cloudMap, "account"); ok {
+			if id, ok := getString(accountMap, "id"); ok {
+				out.Cloud.AccountId = id
+			}
+			if name, ok := getString(accountMap, "name"); ok {
+				out.Cloud.AccountName = name
+			}
+			if zone, ok := getString(accountMap, "availability_zone"); ok {
+				out.Cloud.AvailabilityZone = zone
+			}
+		}
+		if instanceMap, ok := getMap(cloudMap, "instance"); ok {
+			if id, ok := getString(instanceMap, "id"); ok {
+				out.Cloud.InstanceId = id
+			}
+			if name, ok := getString(instanceMap, "name"); ok {
+				out.Cloud.InstanceName = name
+			}
+		}
+		if machineMap, ok := getMap(cloudMap, "machine"); ok {
+			if typeStr, ok := getString(machineMap, "type"); ok {
+				out.Cloud.MachineType = typeStr
+			}
+		}
+		if projectMap, ok := getMap(cloudMap, "project"); ok {
+			if id, ok := getString(projectMap, "id"); ok {
+				out.Cloud.ProjectId = id
+			}
+			if name, ok := getString(projectMap, "name"); ok {
+				out.Cloud.ProjectName = name
+			}
+		}
+		if provider, ok := getString(cloudMap, "provider"); ok {
+			out.Cloud.Provider = provider
+		}
+		if region, ok := getString(cloudMap, "region"); ok {
+			out.Cloud.Region = region
+		}
+		if serviceMap, ok := getMap(cloudMap, "service"); ok {
+			if name, ok := getString(serviceMap, "name"); ok {
+				out.Cloud.ServiceName = name
+			}
+		}
+	}
+
+	// Labels
+	if labels, ok := getMap(m, "labels"); ok {
+		modeldecoderutil.GlobalLabelsFromPb(labels, out)
+	}
+
+	// Process
+	if processMap, ok := getMap(m, "process"); ok {
+		out.Process = &modelpb.Process{}
+		if argv, ok := getStrSlice(processMap, "argv"); ok {
+			out.Process.Argv = append(out.Process.Argv[:0], argv...)
+		}
+		if pid, ok := getInt(processMap, "pid"); ok {
+			out.Process.Pid = uint32(pid)
+		}
+		if ppid, ok := getInt(processMap, "ppid"); ok {
+			out.Process.Ppid = uint32(ppid)
+		}
+		if title, ok := getString(processMap, "title"); ok {
+			out.Process.Title = title
+		}
+	}
+
+	// Service
+	if serviceMap, ok := getMap(m, "service"); ok {
+		out.Service = &modelpb.Service{}
+		if agentMap, ok := getMap(serviceMap, "agent"); ok {
+			out.Agent = &modelpb.Agent{}
+			if activationMethod, ok := getString(agentMap, "activation_method"); ok {
+				out.Agent.ActivationMethod = activationMethod
+			}
+			if ephemeralID, ok := getString(agentMap, "ephemeral_id"); ok {
+				out.Agent.EphemeralId = ephemeralID
+			}
+			if name, ok := getString(agentMap, "name"); ok {
+				out.Agent.Name = name
+			}
+			if version, ok := getString(agentMap, "version"); ok {
+				out.Agent.Version = version
+			}
+		}
+		if environment, ok := getString(serviceMap, "environment"); ok {
+			out.Service.Environment = environment
+		}
+		if frameworkMap, ok := getMap(serviceMap, "framework"); ok {
+			if name, ok := getString(frameworkMap, "name"); ok {
+				out.Service.Framework.Name = name
+			}
+			if version, ok := getString(frameworkMap, "version"); ok {
+				out.Service.Framework.Version = version
+			}
+		}
+		if languageMap, ok := getMap(serviceMap, "language"); ok {
+			if name, ok := getString(languageMap, "name"); ok {
+				out.Service.Language.Name = name
+			}
+			if version, ok := getString(languageMap, "version"); ok {
+				out.Service.Language.Version = version
+			}
+		}
+		if name, ok := getString(serviceMap, "name"); ok {
+			out.Service.Name = name
+		}
+		if name, ok := getStringPaths(serviceMap, "node.name"); ok {
+			out.Service.Node.Name = name
+		}
+		if runtimeMap, ok := getMap(serviceMap, "runtime"); ok {
+			if name, ok := getString(runtimeMap, "name"); ok {
+				out.Service.Runtime.Name = name
+			}
+			if version, ok := getString(runtimeMap, "version"); ok {
+				out.Service.Runtime.Version = version
+			}
+		}
+		if version, ok := getString(serviceMap, "version"); ok {
+			out.Service.Version = version
+		}
+	}
+
+	// System
+	if systemMap, ok := getMap(m, "system"); ok {
+		if architecture, ok := getString(systemMap, "architecture"); ok {
+			out.Host.Architecture = architecture
+		}
+		if configuredHostname, ok := getString(systemMap, "configured_hostname"); ok {
+			out.Host.Name = configuredHostname
+		}
+		if id, ok := getString(systemMap, "container.id"); ok {
+			out.Container.Id = id
+		}
+		if detectedHostname, ok := getString(systemMap, "detected_hostname"); ok {
+			out.Host.Hostname = detectedHostname
+		}
+		if deprecatedHostname, ok := getString(systemMap, "deprecated_hostname"); ok {
+			_, dhOk := getString(systemMap, "detected_hostname")
+			_, chOk := getString(systemMap, "configured_hostname")
+			if !dhOk && !chOk {
+				out.Host.Hostname = deprecatedHostname
+			}
+		}
+		if kubernetesMap, ok := getMap(m, "kubernetes"); ok {
+			if namespace, ok := getString(kubernetesMap, "namespace"); ok {
+				out.Kubernetes.Namespace = namespace
+			}
+			if name, ok := getStringPaths(kubernetesMap, "node.name"); ok {
+				out.Kubernetes.NodeName = name
+			}
+			if podMap, ok := getMap(kubernetesMap, "pod"); ok {
+				if name, ok := getString(podMap, "name"); ok {
+					out.Kubernetes.PodName = name
+				}
+				if uid, ok := getString(podMap, "uid"); ok {
+					out.Kubernetes.PodUid = uid
+				}
+			}
+		}
+		if platform, ok := getString(systemMap, "platform"); ok {
+			out.Host.Os.Platform = platform
+		}
+	}
+
+	// User
+	if userMap, ok := getMap(m, "user"); ok {
+		if domain, ok := getString(userMap, "domain"); ok {
+			out.User.Domain = domain
+		}
+		if id, ok := getString(userMap, "id"); ok {
+			out.User.Id = id
+		}
+		if email, ok := getString(userMap, "email"); ok {
+			out.User.Email = email
+		}
+		if name, ok := getString(userMap, "name"); ok {
+			out.User.Name = name
+		}
+	}
+
+	// Network
+	if typeStr, ok := getStringPaths(m, "network.connection.type"); ok {
+		out.Network.Connection.Type = typeStr
 	}
 }
 
@@ -1601,4 +1792,55 @@ func targetFromDestinationResource(res string) (target model.ServiceTarget) {
 		target.Name = res
 	}
 	return
+}
+
+func getMap(m map[string]any, path string) (map[string]any, bool) {
+	v, ok := m[path]
+	mm, valid := v.(map[string]any)
+	return mm, ok && valid
+}
+
+func getString(m map[string]any, path string) (string, bool) {
+	v, ok := m[path]
+	s, valid := v.(string)
+	return s, ok && valid
+}
+
+func getStringPaths(m map[string]any, path string) (string, bool) {
+	v, ok := get(m, path)
+	s, valid := v.(string)
+	return s, ok && valid
+}
+
+func getInt(m map[string]any, path string) (int64, bool) {
+	v, ok := m[path]
+	i, valid := v.(int64)
+	return i, ok && valid
+}
+
+func getStrSlice(m map[string]any, path string) ([]string, bool) {
+	v, ok := m[path]
+	s, valid := v.([]string)
+	return s, ok && valid
+}
+
+func get(m map[string]any, path string) (any, bool) {
+	var current any = m
+	for before, after, ok := strings.Cut(path, "."); ; before, after, ok = strings.Cut(after, ".") {
+		currentMap, isValid := current.(map[string]any)
+		if !isValid {
+			// type not compatible
+			return nil, false
+		}
+		if v, found := currentMap[before]; found {
+			current = v
+			// last path
+			if !ok {
+				return v, true
+			}
+		} else {
+			// not found
+			return nil, false
+		}
+	}
 }

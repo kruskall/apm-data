@@ -27,12 +27,14 @@ import (
 
 	"go.elastic.co/apm/v2"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/elastic/apm-data/input/elasticapm/internal/decoder"
 	"github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder"
 	"github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder/rumv3"
 	v2 "github.com/elastic/apm-data/input/elasticapm/internal/modeldecoder/v2"
 	"github.com/elastic/apm-data/model"
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 var (
@@ -81,6 +83,25 @@ type Config struct {
 	MaxEventSize int
 }
 
+// StreamHandler is an interface for handling an Elastic APM agent ND-JSON event
+// stream, implemented by processor/stream.
+type StreamHandler interface {
+	HandleStream(
+		ctx context.Context,
+		async bool,
+		enricher EventEnricher,
+		stream io.Reader,
+		batchSize int,
+		processor model.BatchProcessor,
+		out *Result,
+	) error
+}
+
+// EventEnricher is a function type supplied to Handler for extracting
+// metadata from the request. This is used for conditionally injecting the
+// source IP address as `client.ip` for RUM.
+type EventEnricher func(*modelpb.APMEvent)
+
 // NewProcessor returns a new Processor for processing an event stream from
 // Elastic APM agents.
 func NewProcessor(cfg Config) *Processor {
@@ -94,7 +115,7 @@ func NewProcessor(cfg Config) *Processor {
 	}
 }
 
-func (p *Processor) readMetadata(reader *streamReader, out *model.APMEvent) error {
+func (p *Processor) readMetadata(reader *streamReader, out *modelpb.APMEvent) error {
 	body, err := reader.ReadAhead()
 	if err != nil {
 		if err == io.EOF {
@@ -111,9 +132,9 @@ func (p *Processor) readMetadata(reader *streamReader, out *model.APMEvent) erro
 			return reader.wrapError(err)
 		}
 	case rumv3MetadataKey:
-		if err := rumv3.DecodeNestedMetadata(reader, out); err != nil {
+		/*if err := rumv3.DecodeNestedMetadata(reader, out); err != nil {
 			return reader.wrapError(err)
-		}
+		}*/
 	default:
 		return &InvalidInputError{
 			Message:  fmt.Sprintf("%q or %q required", v2MetadataKey, rumv3MetadataKey),
@@ -153,7 +174,7 @@ func (p *Processor) identifyEventType(body []byte) []byte {
 // the error err.
 func (p *Processor) readBatch(
 	ctx context.Context,
-	baseEvent model.APMEvent,
+	baseEvent *modelpb.APMEvent,
 	batchSize int,
 	batch *model.Batch,
 	reader *streamReader,
@@ -223,7 +244,7 @@ func (p *Processor) readBatch(
 func (p *Processor) HandleStream(
 	ctx context.Context,
 	async bool,
-	baseEvent model.APMEvent,
+	enricher EventEnricher,
 	reader io.Reader,
 	batchSize int,
 	processor model.BatchProcessor,
@@ -254,6 +275,9 @@ func (p *Processor) HandleStream(
 		}
 	}()
 
+	baseEvent := modelpb.APMEvent{}
+	enricher(&baseEvent)
+
 	// The first item is the metadata object.
 	if err := p.readMetadata(sr, &baseEvent); err != nil {
 		// no point in continuing if we couldn't read the metadata
@@ -275,7 +299,7 @@ func (p *Processor) HandleStream(
 	}
 	first := true
 	for {
-		err := p.handleStream(ctx, async, baseEvent, batchSize, sr, processor, result, first)
+		err := p.handleStream(ctx, async, &baseEvent, batchSize, sr, processor, result, first)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
@@ -291,7 +315,7 @@ func (p *Processor) HandleStream(
 func (p *Processor) handleStream(
 	ctx context.Context,
 	async bool,
-	baseEvent model.APMEvent,
+	baseEvent *modelpb.APMEvent,
 	batchSize int,
 	sr *streamReader,
 	processor model.BatchProcessor,
@@ -419,8 +443,10 @@ func (sr *streamReader) wrapError(err error) error {
 
 // copyEvent returns a shallow copy of the APMEvent with a deep copy of the
 // labels and numeric labels.
-func copyEvent(e model.APMEvent) model.APMEvent {
-	var out = e
+func copyEvent(e *modelpb.APMEvent) model.APMEvent {
+	cl := proto.Clone(e)
+	var out modelpb.APMEvent
+	if cl.ProtoReflect
 	if out.Labels != nil {
 		out.Labels = out.Labels.Clone()
 	}
