@@ -19,6 +19,8 @@ package model
 
 import (
 	"context"
+
+	"github.com/elastic/apm-data/model/modelpb"
 )
 
 // BatchProcessor can be used to process a batch of events, giving the
@@ -46,3 +48,19 @@ func (f ProcessBatchFunc) ProcessBatch(ctx context.Context, b *Batch) error {
 
 // Batch is a collection of APM events.
 type Batch []APMEvent
+
+func ProtoBatchProcessor(p modelpb.BatchProcessor) BatchProcessor {
+	return ProcessBatchFunc(func(ctx context.Context, b *Batch) error {
+		batch := make(modelpb.Batch, 0, len(*b))
+		for _, v := range *b {
+			batch = append(batch, toPb(&v))
+		}
+		return p.ProcessBatch(ctx, &batch)
+	})
+}
+
+func toPb(e *APMEvent) *modelpb.APMEvent {
+	var out modelpb.APMEvent
+	e.ToModelProtobuf(&out)
+	return &out
+}
