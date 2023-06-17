@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/gofrs/uuid v4.3.1+incompatible
 	github.com/google/go-cmp v0.5.9
+	github.com/google/gofuzz v1.2.0
 	github.com/jaegertracing/jaeger v1.38.1
 	github.com/json-iterator/go v1.1.12
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/jaeger v0.63.0
@@ -62,3 +63,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.0 // indirect
 )
+
+replace github.com/google/gofuzz => ../gofuzz
