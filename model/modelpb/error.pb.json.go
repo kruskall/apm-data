@@ -29,9 +29,7 @@ func (e *Error) toModelJSON(out *modeljson.Error) {
 		StackTrace:  e.StackTrace,
 	}
 	if e.Custom != nil {
-		m := e.Custom.AsMap()
-		updateFields(m)
-		out.Custom = m
+		out.Custom = &modeljson.Map{Struct: e.Custom}
 	}
 	if e.Exception != nil {
 		out.Exception = &modeljson.Exception{}
@@ -64,7 +62,7 @@ func (e *Exception) toModelJSON(out *modeljson.Exception) {
 		Handled: e.Handled,
 	}
 	if e.Attributes != nil {
-		out.Attributes = e.Attributes.AsMap()
+		out.Attributes = &modeljson.Map{Struct: e.Attributes}
 	}
 	if n := len(e.Cause); n > 0 {
 		out.Cause = make([]modeljson.Exception, n)

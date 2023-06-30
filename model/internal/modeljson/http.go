@@ -28,8 +28,8 @@ type HTTP struct {
 type HTTPRequest struct {
 	Body     *HTTPRequestBody `json:"body,omitempty"`
 	Headers  http.Header      `json:"headers,omitempty"` // Non-ECS field.
-	Env      map[string]any   `json:"env,omitempty"`     // Non-ECS field.
-	Cookies  map[string]any   `json:"cookies,omitempty"` // Non-ECS field.
+	Env      *Map             `json:"env,omitempty"`     // Non-ECS field.
+	Cookies  *Map             `json:"cookies,omitempty"` // Non-ECS field.
 	ID       string           `json:"id,omitempty"`
 	Method   string           `json:"method,omitempty"`
 	Referrer string           `json:"referrer,omitempty"`

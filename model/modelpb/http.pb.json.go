@@ -37,10 +37,10 @@ func (h *HTTP) toModelJSON(out *modeljson.HTTP) {
 			out.Request.Headers = ToHTTPHeaders(h.Request.Headers)
 		}
 		if h.Request.Env != nil {
-			out.Request.Env = h.Request.Env.AsMap()
+			out.Request.Env = &modeljson.Map{Struct: h.Request.Env}
 		}
 		if h.Request.Cookies != nil {
-			out.Request.Cookies = h.Request.Cookies.AsMap()
+			out.Request.Cookies = &modeljson.Map{Struct: h.Request.Cookies}
 		}
 		if h.Request.Body != nil {
 			out.Request.Body = &modeljson.HTTPRequestBody{
