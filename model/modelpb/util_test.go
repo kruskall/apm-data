@@ -26,7 +26,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func randomStruct(t testing.TB) (*structpb.Struct, map[string]any) {
+func randomStructPb(t testing.TB) *structpb.Struct {
 	m := map[string]any{
 		t.Name() + ".key." + randString(): t.Name() + ".value." + randString(),
 	}
@@ -34,11 +34,6 @@ func randomStruct(t testing.TB) (*structpb.Struct, map[string]any) {
 	s, err := structpb.NewStruct(m)
 	require.NoError(t, err)
 
-	return s, m
-}
-
-func randomStructPb(t testing.TB) *structpb.Struct {
-	s, _ := randomStruct(t)
 	return s
 }
 

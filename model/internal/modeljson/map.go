@@ -23,7 +23,8 @@ import (
 )
 
 type Map struct {
-	Struct *structpb.Struct
+	Struct   *structpb.Struct
+	Sanitize bool
 }
 
 func (m *Map) MarshalFastJSON(w *fastjson.Writer) error {
