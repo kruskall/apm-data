@@ -33,6 +33,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/elastic/apm-data/model/modelpb"
+	"github.com/kruskall/apm-fuzz/fuzz"
+	"github.com/kruskall/go-fuzz-headers/bytesource"
 )
 
 func TestHandleStreamReaderError(t *testing.T) {
@@ -200,6 +202,39 @@ func TestHandleStreamErrors(t *testing.T) {
 			assert.Equal(t, test.invalid, actualResult.Invalid)
 		})
 	}
+}
+
+func FuzzHandleStream(f *testing.F) {
+	p := NewProcessor(Config{
+		MaxEventSize: 100 * 1024,
+		Semaphore:    semaphore.NewWeighted(20),
+	})
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		b, err := fuzz.GenerateIntakeV2Data(input)
+		if err != nil {
+			if errors.Is(err, bytesource.ErrNotEnoughBytes) {
+				return
+			}
+			if strings.Contains(err.Error(), "json: unsupported value: ") {
+				return
+			}
+			t.Fatalf("failed to generate data with input %v: %v", input, err)
+			return
+		}
+
+		r := bytes.NewReader(b)
+
+		err = p.HandleStream(
+			context.Background(), false, &modelpb.APMEvent{},
+			r, 100, nopBatchProcessor{},
+			&Result{},
+		)
+
+		if err != nil && !strings.Contains(err.Error(), "validation error") {
+			t.Fatalf("failed to handle stream: %v: %s", err, string(b))
+		}
+	})
 }
 
 func TestHandleStream(t *testing.T) {
